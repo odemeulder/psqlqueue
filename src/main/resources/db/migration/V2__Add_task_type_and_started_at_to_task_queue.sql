@@ -1,0 +1,5 @@
+ALTER TABLE task_queue
+    ADD COLUMN task_type VARCHAR(64) NOT NULL DEFAULT 'default';
+
+ALTER TABLE task_queue
+    ADD COLUMN started_at TIMESTAMP WITH TIME ZONE NULL;
