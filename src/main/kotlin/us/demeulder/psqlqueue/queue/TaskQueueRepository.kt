@@ -31,11 +31,14 @@ import java.util.UUID
 
 @Repository
 internal class TaskQueueRepository(
-    private val jdbcTemplate: JdbcTemplate
+    private val jdbcTemplate: JdbcTemplate,
+    @org.springframework.beans.factory.annotation.Value("\${psqlqueue.postgres.channel:task_queue_channel}")
+    private val channel: String = DEFAULT_TASK_QUEUE_CHANNEL
 ) {
     companion object {
         private const val DEFAULT_MAX_ATTEMPTS = 5
         private const val DEFAULT_TASK_TYPE = "default"
+        private const val DEFAULT_TASK_QUEUE_CHANNEL = "task_queue_channel"
     }
 
     fun insertTask(payload: String, taskType: String = DEFAULT_TASK_TYPE, maxAttempts: Int = DEFAULT_MAX_ATTEMPTS): UUID {
@@ -220,9 +223,10 @@ internal class TaskQueueRepository(
     }
 
     internal fun isPostgres(): Boolean {
-        return jdbcTemplate.dataSource?.connection.use { connection ->
-            connection?.metaData?.databaseProductName?.contains("Postgre", ignoreCase = true) == true
-        } ?: false
+        val connection = jdbcTemplate.dataSource?.connection ?: return false
+        return connection.use {
+            it.metaData.databaseProductName.contains("Postgre", ignoreCase = true)
+        }
     }
 
     private fun notifyPostgresChannel() {
@@ -230,7 +234,7 @@ internal class TaskQueueRepository(
             return
         }
 
-        jdbcTemplate.execute("SELECT pg_notify('task_queue_channel', '')")
+        jdbcTemplate.execute("SELECT pg_notify('$channel', '')")
     }
 
     private val rowMapper = RowMapper { rs: ResultSet, _: Int ->

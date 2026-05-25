@@ -15,7 +15,9 @@ import javax.sql.DataSource
 internal class PostgresTaskQueueListener(
     private val repository: TaskQueueRepository,
     handlers: List<TaskHandler>,
-    private val dataSource: DataSource
+    private val dataSource: DataSource,
+    @org.springframework.beans.factory.annotation.Value("\${psqlqueue.postgres.channel:task_queue_channel}")
+    private val channel: String = DEFAULT_CHANNEL
 ) {
     private val handlerByType: Map<String, TaskHandler> = handlers
         .groupBy { it.taskType }
@@ -27,7 +29,7 @@ internal class PostgresTaskQueueListener(
         }
     companion object {
         private val logger = LoggerFactory.getLogger(PostgresTaskQueueListener::class.java)
-        private const val CHANNEL = "task_queue_channel"
+        private const val DEFAULT_CHANNEL = "task_queue_channel"
         private const val LISTEN_TIMEOUT_MS = 10_000
         private const val RECONNECT_DELAY_MS = 5_000L
         private const val MAX_TASKS_PER_CYCLE = 10
@@ -48,7 +50,7 @@ internal class PostgresTaskQueueListener(
         }
 
         if (running.compareAndSet(false, true)) {
-            logger.info("Starting Postgres task queue listener for channel '{}'.", CHANNEL)
+            logger.info("Starting Postgres task queue listener for channel '{}'.", channel)
             executor.submit { runListenerLoop() }
         }
     }
@@ -77,9 +79,9 @@ internal class PostgresTaskQueueListener(
     private fun openListenConnection() {
         val connection = dataSource.connection
         connection.autoCommit = true
-        connection.createStatement().use { it.execute("LISTEN $CHANNEL") }
+        connection.createStatement().use { it.execute("LISTEN $channel") }
         listenConnection = connection
-        logger.info("Subscribed to Postgres channel '{}'", CHANNEL)
+        logger.info("Subscribed to Postgres channel '{}'", channel)
     }
 
     private fun waitForNotifications() {
@@ -89,7 +91,7 @@ internal class PostgresTaskQueueListener(
         while (running.get()) {
             val notifications = pgConnection.getNotifications(LISTEN_TIMEOUT_MS)
             if (notifications != null && notifications.isNotEmpty()) {
-                logger.debug("Received {} notification(s) on Postgres channel '{}'", notifications.size, CHANNEL)
+                logger.debug("Received {} notification(s) on Postgres channel '{}'", notifications.size, channel)
                 return
             }
             // No notification: continue waiting without processing to avoid duplicate claims.
