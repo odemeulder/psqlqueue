@@ -1,36 +1,30 @@
 # psqlqueue
 
-psqlqueue is a small Kotlin library providing a PostgreSQL-backed task queue and lightweight task processing primitives.
-
-This repository contains a simple task queue implementation using PostgreSQL for persistence and Kotlin (Gradle) for the application and tests.
-
-**Status:** ready for development and agent automation.
-
-## Quick summary
+A Spring Boot library that provides a PostgreSQL-backed task queue with LISTEN/NOTIFY-driven processing.
 
 - **Language:** Kotlin
 - **Build:** Gradle
-- **Database:** PostgreSQL (migrations included)
+- **Database:** PostgreSQL (Flyway migrations included)
+- **Publication coordinates:** `us.demeulder:psqlqueue:0.0.1-SNAPSHOT`
 
-## Contents
+---
 
-- [Source code](src/main/kotlin/us/demeulder/psqlqueue/)
-- [Tests and test resources](src/test/)
-- Database migrations: `src/main/resources/db/migration/`
+## 1. Add the dependency
 
-## Usage
-
-How to import the library?
-
-Add the project as a Gradle or Maven dependency. The current publication coordinates are:
-
-Gradle
+**Gradle**
 
 ```kotlin
-implementation("us.demeulder:psqlqueue:0.0.1-SNAPSHOT")
+repositories {
+    mavenLocal()
+    mavenCentral()
+}
+
+dependencies {
+    implementation("us.demeulder:psqlqueue:0.0.1-SNAPSHOT")
+}
 ```
 
-Maven
+**Maven**
 
 ```xml
 <dependency>
@@ -40,151 +34,164 @@ Maven
 </dependency>
 ```
 
-How to publish an event?
+Publish the library to your local Maven repository first if you haven't already:
 
-Inject `TaskQueueService` into your Spring component and call `publishEvent`.
-
-```kotlin
-@Service
-class OrderService(
-    private val taskQueueService: TaskQueueService
-) {
-    fun publishOrderEvent(orderId: String) {
-        val payload = "{\"orderId\": \"$orderId\"}" // JSON or plain text
-        val taskId = taskQueueService.publishEvent(
-            payload = payload,
-            taskType = "order-created",
-            maxAttempts = 5
-        )
-        println("Published task $taskId")
-    }
-}
+```bash
+cd psqlqueue
+./gradlew publishToMavenLocal
 ```
 
+---
+
+## 2. Configure datasource and Flyway
+
+Add a PostgreSQL datasource in your `application.properties`. Tell Flyway to pick up the library's migrations alongside your own:
+
+```properties
+spring.datasource.url=jdbc:postgresql://localhost:5432/mydb?currentSchema=queue
+spring.datasource.username=db_user
+spring.datasource.password=secret
+
+# Include both your app migrations and the library's migrations
+spring.flyway.locations=classpath:db/migration/app,classpath:db/migration
+```
+
+The library ships its own Flyway migrations on `classpath:db/migration`. Flyway will create the `task_queue` table automatically on startup.
+
+---
+
+## 3. Publish an event
+
+Inject `TaskQueueService` into any Spring component and call `publishEvent(payload, taskType, maxAttempts)`:
+
+**Java**
+
 ```java
-@Service
+import us.demeulder.psqlqueue.TaskQueueService;
+
+@Component
 public class OrderService {
-    private final TaskQueueService taskQueueService;
 
-    public OrderService(TaskQueueService taskQueueService) {
-        this.taskQueueService = taskQueueService;
-    }
+    @Autowired
+    TaskQueueService queueService;
 
-    public void publishOrderEvent(String orderId) {
-        String payload = String.format("{\"orderId\": \"%s\"}", orderId);
-        UUID taskId = taskQueueService.publishEvent(
-            payload,
-            "order-created",
-            5
-        );
-        System.out.println("Published task " + taskId);
+    public void processOrder(Order order) {
+        queueService.publishEvent("Order 123", "order.process", 3);
     }
 }
 ```
 
-How to build a handler to consume an event?
-
-Implement `TaskHandler` and register it as a Spring bean. The queue listener will route tasks by `taskType`.
+**Kotlin**
 
 ```kotlin
-@Component
-class OrderCreatedTaskHandler : TaskHandler {
-    override val taskType: String = "order-created"
+import us.demeulder.psqlqueue.TaskQueueService
 
-    override fun handle(payload: String) {
-        // Deserialize payload and process the task
-        println("Handling order-created task: $payload")
+@Component
+class OrderService(private val queueService: TaskQueueService) {
+
+    fun processOrder(order: Order) {
+        queueService.publishEvent("Order 123", "order.process", 3)
     }
 }
 ```
 
+`publishEvent` signature:
+
+| Parameter | Type | Description |
+|---|---|---|
+| `payload` | `String` | Arbitrary string (plain text, JSON, etc.) |
+| `taskType` | `String` | Routes the task to the matching handler |
+| `maxAttempts` | `Int` | How many times to retry before marking as `FAILED` |
+
+---
+
+## 4. Consume an event
+
+Implement `TaskHandler` and register the class as a Spring `@Component`. The library's listener will automatically route tasks to the handler matching `getTaskType()`.
+
+**Java**
+
 ```java
+import us.demeulder.psqlqueue.TaskHandler;
+
 @Component
-public class OrderCreatedTaskHandler implements TaskHandler {
+public class OrderPlacedHandler implements TaskHandler {
+
     @Override
     public String getTaskType() {
-        return "order-created";
+        return "order.process";
     }
 
     @Override
     public void handle(String payload) {
-        // Deserialize payload and process the task
-        System.out.println("Handling order-created task: " + payload);
+        // payload is whatever was passed to publishEvent()
+        System.out.println("Handling order: " + payload);
     }
 }
 ```
 
-A `PostgresTaskQueueListener` is included in the application and starts automatically when the Spring context is ready. It listens for Postgres notifications, claims pending tasks, and dispatches them to the matching handler.
+**Kotlin**
 
-## Quick Start
+```kotlin
+import us.demeulder.psqlqueue.TaskHandler
 
-1. Ensure PostgreSQL is running and reachable.
-2. Create a database (example: `psqlqueue_dev`) and apply migrations found in `src/main/resources/db/migration/`.
-   - You can apply migrations manually with `psql`:
+@Component
+class OrderPlacedHandler : TaskHandler {
 
-```bash
-psql -h <host> -U <user> -d psqlqueue_dev -f src/main/resources/db/migration/V1__Create_task_queue_table.sql
-psql -h <host> -U <user> -d psqlqueue_dev -f src/main/resources/db/migration/V2__Add_task_type_and_started_at_to_task_queue.sql
+    override val taskType = "order.process"
+
+    override fun handle(payload: String) {
+        println("Handling order: $payload")
+    }
+}
 ```
 
-3. Build the project:
+A handler can also enqueue follow-on tasks — for example, fanning out to multiple downstream task types:
 
-```bash
-./gradlew build
+```java
+@Component
+public class OrderPlacedHandler implements TaskHandler {
+
+    @Autowired TaskQueueService queueService;
+
+    @Override
+    public String getTaskType() { return "order.process"; }
+
+    @Override
+    public void handle(String payload) {
+        queueService.publishEvent(payload, "send-email", 3);
+        queueService.publishEvent(payload, "update-inventory", 3);
+    }
+}
 ```
 
-4. Run the app (if an application plugin / run task exists in the Gradle build):
+Only one handler per `taskType` is allowed — the library enforces this at startup.
 
-```bash
-./gradlew run
+---
+
+## Task lifecycle
+
+```
+PENDING → IN_PROGRESS → COMPLETED
+                      → PENDING  (retry, exponential backoff up to 300 s)
+                      → FAILED   (when attempts >= maxAttempts)
 ```
 
-## Configuration
+---
 
-Configuration is read from `application.properties` in `src/main/resources` (and `test/resources` for tests). Provide a database URL, username, and password via properties or environment variables as your application expects.
+## Optional configuration
 
-## Key files
-
-- Main queue code: [src/main/kotlin/us/demeulder/psqlqueue/queue](src/main/kotlin/us/demeulder/psqlqueue/queue/)
-- Example/service entrypoint: [src/main/kotlin/us/demeulder/psqlqueue/queue/TaskQueueService.kt](src/main/kotlin/us/demeulder/psqlqueue/queue/TaskQueueService.kt)
-- Migrations: [src/main/resources/db/migration](src/main/resources/db/migration/)
-- Tests: [src/test/kotlin](src/test/kotlin/)
-
-## Development commands (for humans and agents)
-
-- Build: `./gradlew build`
-- Run tests: `./gradlew test`
-- Run with logging: `./gradlew run --info`
-
-When automating, prefer the Gradle wrapper (`./gradlew`) to ensure consistent tooling.
-
-## Agent-friendly checklist
-
-If an agent is modifying or inspecting this repo, the following checklist makes tasks straightforward:
-
-1. Run the test suite:
-
-```bash
-./gradlew test
+```properties
+# Postgres LISTEN/NOTIFY channel (default: task_queue_channel)
+psqlqueue.postgres.channel=my_custom_channel
 ```
 
-2. Run a static build to ensure compilation:
+---
+
+## Development commands
 
 ```bash
-./gradlew build
+./gradlew build                  # compile + test + package
+./gradlew test                   # run tests only
+./gradlew publishToMavenLocal    # publish to ~/.m2 for local consumption
 ```
-
-3. If running migrations from the repository is required, apply SQL directly from `src/main/resources/db/migration/` using `psql` (see Quick Start).
-
-4. Key places to inspect for task queue behavior:
-   - `src/main/kotlin/us/demeulder/psqlqueue/queue/TaskQueueService.kt` — main service
-   - `src/main/kotlin/us/demeulder/psqlqueue/queue/TaskQueueRepository.kt` — DB access
-   - `src/main/kotlin/us/demeulder/psqlqueue/queue/TaskProcessor.kt` — processing loop
-
-5. When adding tests, mirror production config in `src/test/resources/application.properties` and use an isolated test database.
-
-6. Suggested PR checks for CI pipeline (automated by an agent):
-   - `./gradlew build` passes
-   - `./gradlew test` passes
-   - Database migration SQL is syntactically valid (optionally lint with psql)
-
