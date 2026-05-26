@@ -1,4 +1,4 @@
-package us.demeulder.psqlqueue.queue
+package us.demeulder.psqlqueue
 
 /*
 PostgreSQL table schema required for this queue implementation:
@@ -28,6 +28,7 @@ import java.sql.Timestamp
 import java.time.Duration
 import java.time.Instant
 import java.util.UUID
+import us.demeulder.psqlqueue.TaskQueueItem
 
 @Repository
 internal class TaskQueueRepository(

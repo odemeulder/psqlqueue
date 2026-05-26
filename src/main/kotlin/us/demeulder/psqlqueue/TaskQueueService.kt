@@ -1,12 +1,16 @@
-package us.demeulder.psqlqueue.queue
+package us.demeulder.psqlqueue
 
 import org.springframework.stereotype.Service
+import org.springframework.beans.factory.annotation.Autowired
 import java.util.UUID
+import us.demeulder.psqlqueue.TaskQueueRepository
 
 @Service
-internal class TaskQueueService(
-    private val repository: TaskQueueRepository
-) {
+class TaskQueueService() {
+
+    @Autowired
+    private lateinit var repository: TaskQueueRepository
+
     fun getSummary(): QueueStatusSummary {
         return repository.getSummary()
     }

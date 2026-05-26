@@ -1,4 +1,4 @@
-package us.demeulder.psqlqueue.queue
+package us.demeulder.psqlqueue
 
 import jakarta.annotation.PreDestroy
 import org.postgresql.PGConnection

@@ -1,4 +1,4 @@
-package us.demeulder.psqlqueue.queue
+package us.demeulder.psqlqueue
 
 import java.time.Instant
 import java.util.UUID
@@ -24,7 +24,7 @@ internal data class TaskQueueItem(
     val startedAt: Instant?
 )
 
-internal data class QueueStatusSummary(
+data class QueueStatusSummary(
     val pending: Long,
     val inProgress: Long,
     val completed: Long,

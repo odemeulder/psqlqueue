@@ -1,4 +1,4 @@
-package us.demeulder.psqlqueue.queue
+package us.demeulder.psqlqueue
 
 import org.slf4j.LoggerFactory
 import org.springframework.scheduling.annotation.Scheduled

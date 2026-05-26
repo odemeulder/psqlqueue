@@ -1,4 +1,4 @@
-package us.demeulder.psqlqueue.queue
+package us.demeulder.psqlqueue
 
 import com.fasterxml.jackson.annotation.JsonCreator
 import com.fasterxml.jackson.annotation.JsonProperty
