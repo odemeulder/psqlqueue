@@ -1,5 +1,6 @@
 package us.demeulder.psqlqueue
 
+import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 
 interface TaskHandler {
@@ -8,12 +9,15 @@ interface TaskHandler {
 }
 
 @Component
-internal class DefaultTaskProcessorHandler(
-    private val processor: TaskProcessor
-) : TaskHandler {
+internal class DefaultTaskProcessorHandler : TaskHandler {
+    companion object {
+        private val logger = LoggerFactory.getLogger(DefaultTaskProcessorHandler::class.java)
+    }
+
     override val taskType: String = "default"
 
     override fun handle(payload: String) {
-        processor.process(payload)
+        logger.info("Processing queued payload: {}", payload)
     }
 }
+
